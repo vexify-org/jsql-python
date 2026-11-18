@@ -3,16 +3,104 @@ name: Publish
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
+  sync:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      action: ${{ steps.resolve.outputs.action }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      target: ${{ steps.resolve.outputs.target }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve versions
+        id: resolve
+        run: |
+          python -m pip install --quiet packaging
+          TARGET=$(npm view jsql-neo version)
+          python - "$TARGET" <<'PY'
+          import os
+          import re
+          import sys
+          import urllib.request
+
+          from packaging.version import Version
+
+          target = Version(sys.argv[1])
+          text = open("pyproject.toml", encoding="utf-8").read()
+          current = Version(re.search(r'(?m)^version = "([^"]+)"', text).group(1))
+
+          def on_pypi(version):
+              url = "https://pypi.org/pypi/jsql-neo/%s/json" % version
+              try:
+                  urllib.request.urlopen(url, timeout=15).read()
+                  return True
+              except Exception:
+                  return False
+
+          if current > target:
+              action, publish = "none", False
+          else:
+              action = "bump" if current < target else "none"
+              publish = not on_pypi(target)
+
+          print("current=%s target=%s action=%s publish=%s" % (current, target, action, publish))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write("action=%s\npublish=%s\ntarget=%s\n" % (action, "true" if publish else "false", target))
+          PY
+
+      - name: Bump version references
+        if: steps.resolve.outputs.action == 'bump'
+        run: python scripts/sync_version.py "${{ steps.resolve.outputs.target }}"
+
+      - name: Install and test
+        if: steps.resolve.outputs.publish == 'true'
+        run: |
+          npm install -g "jsql-neo@${{ steps.resolve.outputs.target }}" --ignore-scripts
+          python -m pip install -e .
+          python -m unittest discover -s tests -v
+
+      - name: Commit and tag
+        if: steps.resolve.outputs.action == 'bump'
+        run: |
+          git config user.name "CI Bot"
+          git config user.email "bot@jsql.dev"
+          git add -A
+          git commit -m "chore: sync jsql-neo ${{ steps.resolve.outputs.target }}"
+          git push
+          git tag "v${{ steps.resolve.outputs.target }}"
+          git push origin "v${{ steps.resolve.outputs.target }}"
+
   build:
+    needs: [sync]
+    if: always() && (needs.sync.result == 'skipped' || (needs.sync.result == 'success' && needs.sync.outputs.publish == 'true'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || 'main' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -29,7 +117,8 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: [build]
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
