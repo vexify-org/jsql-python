@@ -18,7 +18,7 @@ Then install the Python package:
 pip install jsql-neo
 ```
 
-Requires Node.js 18+ and `jsql-neo` >= 6.5.12.
+Requires Node.js 18+ and `jsql-neo` >= 6.7.7.
 
 ## CLI
 
@@ -94,8 +94,8 @@ The package locates the npm package from the current directory
 
 ## Versioning
 
-The Python package version mirrors the npm package (`6.5.13`). The Python
-wrapper only needs `jsql-neo >= 6.5.12`.
+The Python package version mirrors the npm package (`6.7.7`). The Python
+wrapper only needs `jsql-neo >= 6.7.7`.
 
 ## License
 
