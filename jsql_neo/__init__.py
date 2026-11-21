@@ -12,7 +12,7 @@ Install the Node side once with::
 from ._node import JSQLNotInstalled, SETUP_HINT, find_package_root
 from .database import Database, JSQLException
 
-__version__ = "6.7.7"
+__version__ = "6.8.4"
 
 __all__ = [
     "Database",
