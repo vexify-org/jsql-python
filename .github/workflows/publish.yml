@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
+  repository_dispatch:
+    types: [release]
 
 permissions:
   contents: read
@@ -16,7 +18,7 @@ concurrency:
 
 jobs:
   sync:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event_name != 'repository_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,11 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -95,14 +97,19 @@ jobs:
 
   build:
     needs: [sync]
-    if: always() && (needs.sync.result == 'skipped' || (needs.sync.result == 'success' && needs.sync.outputs.publish == 'true'))
+    if: |
+      always() && (
+        github.event_name == 'repository_dispatch' ||
+        (needs.sync.result == 'skipped') ||
+        (needs.sync.result == 'success' && needs.sync.outputs.publish == 'true')
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'push' && github.ref || 'main' }}
+          ref: ${{ github.event_name == 'push' && github.ref || (github.event_name == 'repository_dispatch' && github.event.client_payload.tag) || 'main' }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -111,7 +118,7 @@ jobs:
           python -m pip install build
           python -m build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -124,7 +131,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
